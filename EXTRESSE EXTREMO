@@ -1,0 +1,170 @@
+import unittest
+
+def login(usuario):
+    sql = f"SELECT * FROM usuarios WHERE usuario = '{usuario}'"
+    return sql
+
+class TesteSeguranca(unittest.TestCase):
+
+    def test_injecao_sql(self):
+        ataque = "' OR 1=1 --"
+        resultado = login(ataque)
+
+        self.assertIn("OR 1=1", resultado)
+
+if __name__ == '__main__':
+    unittest.main()
+
+--------------------------------------------------------------------------------------------------------------------
+
+import sqlite3
+
+usuario = input("Digite o login: ")
+
+conexao = sqlite3.connect("banco.db")
+cursor = conexao.cursor()
+
+sql = "SELECT * FROM usuarios WHERE login = ?"
+
+cursor.execute(sql, (usuario,))
+
+resultado = cursor.fetchall()
+
+print(resultado)
+
+conexao.close()
+
+--------------------------------------------------------------------------------------------------------------------
+
+import sqlite3
+
+conexao = sqlite3.connect("banco.db")
+cursor = conexao.cursor()
+
+cursor.execute("DROP TABLE IF EXISTS usuarios")
+
+cursor.execute("""
+CREATE TABLE usuarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    login TEXT,
+    nome TEXT
+)
+""")
+
+cursor.execute("INSERT INTO usuarios (login, nome) VALUES (?, ?)", ("admin", "Administrador"))
+cursor.execute("INSERT INTO usuarios (login, nome) VALUES (?, ?)", ("william", "William Silva"))
+cursor.execute("INSERT INTO usuarios (login, nome) VALUES (?, ?)", ("ana", "Ana Silva"))
+
+conexao.commit()
+conexao.close()
+
+print("Banco criado com sucesso.")
+
+
+-------------------------------------------------------------------------------------------------------------------------
+
+import unittest
+
+def login(usuario, senha):
+    return usuario == "admin" and senha == "123"
+
+def acessar_painel():
+    return "Painel Aberto"
+
+class TestSistema(unittest.TestCase):
+
+    def test_fluxo_completo(self):
+        acesso = login("admin", "123")
+        self.assertTrue(acesso)
+
+        painel = acessar_painel()
+        self.assertEqual(painel, "Painel Aberto")
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+------------------------------------------------------------------------------------------------------------------------------
+
+
+import unittest
+import mysql.connector
+
+class TesteIntegracaoBanco(unittest.TestCase):
+
+    def test_inserir_aluno(self):
+
+        conexao = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="root",
+            database="escola_db"
+        )
+        
+        cursor = conexao.cursor()
+
+        sql = "INSERT INTO alunos (nome, idade, curso) VALUES (%s, %s, %s)"
+        dados = ("Ana", 22, "Banco de dados")
+
+        cursor.execute(sql, dados)
+        conexao.commit()
+
+        cursor.execute("SELECT nome FROM alunos WHERE nome = 'Ana'")
+        resultado = cursor.fetchone()
+
+        self.assertEqual(resultado[0], ["Ana"])
+
+        cursor.close()
+        conexao.close()
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+--------------------------------------------------------------------------------------------------------------------------------
+
+
+import mysql.connector
+
+conexao = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="root",
+    database="escola_db"
+)
+
+cursor = conexao.cursor()
+
+sql = "INSERT INTO alunos (nome, idade, curso) VALUES (%s, %s, %s)"
+dados = ("Arthur", 30, "Python")
+
+cursor.execute(sql, dados)
+conexao.commit()
+
+
+--------------------------------------------------------------------------------------------------------------------------------
+
+
+import sqlite3
+
+usuario = input("Digite o login: ")
+
+conexao = sqlite3.connect("teste.db")
+cursor = conexao.cursor()
+
+sql = "SELECT * FROM usuarios WHERE login = ' " + usuario + " ' "
+
+print("SQL INJETADO: ", sql)
+
+cursor.execute(sql)
+
+resultado = cursor.fetchall()
+
+print("Resultado:", resultado)
+
+conexao.close()
+
+print("Aluno cadastrado com sucesso")
+
+cursor.close()
+conexao.close()
