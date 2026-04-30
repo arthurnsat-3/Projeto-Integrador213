@@ -1,0 +1,12 @@
+CREATE DATABASE escola_db
+USE escola_db
+CREATE TABLE alunos (
+	id INT AUTO_INCREMENT PRIMARY KEY,
+    nome VARCHAR(100),
+    idade INT,
+    curso VARCHAR(100)
+);
+SELECT * FROM alunos
+INSERT INTO alunos (nome, idade, curso)
+VALUES
+("William", 30, "Python");
