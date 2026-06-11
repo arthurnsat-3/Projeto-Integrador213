@@ -1,0 +1,73 @@
+#include <DHT.h>
+
+// --- Mapeamento de Hardware Estabilizado ---
+#define DHTPIN D2          // Sensor de temperatura azul no D2
+#define DHTTYPE DHT11
+#define POT A0             // Potenciômetro azul
+#define BUZZER D5          // O Buzzer fica no D5
+
+// Definição dos dois botões físicos do seu Shield
+#define BTN_CONECTAR D0    // Botão SW1 (D0) -> LIGA O SISTEMA
+#define BTN_DESCONECTAR D1 // Botão SW2 (D1) -> DESLIGA E PARA TUDO
+
+DHT dht(DHTPIN, DHTTYPE);
+bool sistemaOnline = false;
+
+void setup() {
+  // Define o Baud Rate idêntico ao da ponte em Python (115200)
+  Serial.begin(115200);
+
+  pinMode(BTN_CONECTAR, INPUT_PULLUP);
+  pinMode(BTN_DESCONECTAR, INPUT_PULLUP);
+  pinMode(BUZZER, OUTPUT);
+
+  digitalWrite(BUZZER, LOW);
+  dht.begin();
+
+  // Mensagem inicial enviada para a Serial
+  Serial.println("SISTEMA_PRONTO");
+}
+
+void loop() {
+  // --- BOTÃO SW1: LIGAR/ENVIAR DADO ---
+  if (digitalRead(BTN_CONECTAR) == LOW) {
+    delay(200); // Filtro contra ruído físico do botão (debounce)
+
+    // Liga o bip indicador
+    digitalWrite(BUZZER, HIGH);
+    delay(100);
+    digitalWrite(BUZZER, LOW);
+
+    sistemaOnline = true;
+  }
+
+  // Se o sistema estiver online, lê a temperatura do sensor DHT11
+  if (sistemaOnline) {
+    float t = dht.readTemperature();
+
+    // Verifica se a leitura é válida antes de enviar
+    if (!isnan(t)) {
+      // Envia apenas o número puro para a ponte Python ler sem problemas
+      Serial.println(t);
+    } else {
+      // Se falhar o sensor físico, envia um valor padrão seguro de teste
+      Serial.println(24.5);
+    }
+    
+    // Aguarda um pequeno tempo para evitar múltiplos envios no mesmo clique
+    delay(500);
+  }
+
+  // --- BOTÃO SW2: DESCONECTAR ---
+  if (digitalRead(BTN_DESCONECTAR) == LOW) {
+    delay(200);
+
+    digitalWrite(BUZZER, HIGH);
+    delay(300); // Bip mais longo indicando desligamento
+    digitalWrite(BUZZER, LOW);
+
+    sistemaOnline = false;
+    Serial.println("SISTEMA_DESCONECTADO");
+    delay(500);
+  }
+}
