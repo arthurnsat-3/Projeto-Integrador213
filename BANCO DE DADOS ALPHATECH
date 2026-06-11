@@ -1,0 +1,51 @@
+-- 1. Criação do Banco de Dados caso não exista
+CREATE DATABASE IF NOT EXISTS alphatech_db;
+USE alphatech_db;
+
+-- 2. Tabela de Sensores
+CREATE TABLE IF NOT EXISTS sensores (
+    id_sensor INT AUTO_INCREMENT PRIMARY KEY,
+    nome VARCHAR(50) NOT NULL,
+    localizacao VARCHAR(100),
+    status VARCHAR(20)
+);
+
+-- 3. Tabela de Usuários (com a coluna email corrigida)
+CREATE TABLE IF NOT EXISTS usuarios (
+    id_usuario INT AUTO_INCREMENT PRIMARY KEY,
+    usuario VARCHAR(50) NOT NULL UNIQUE,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    senha_hash VARCHAR(255) NOT NULL,
+    nivel_acesso VARCHAR(20) NOT NULL
+);
+
+-- 4. Tabela de Leituras (Relacionada com Sensores)
+CREATE TABLE IF NOT EXISTS leituras (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    id_sensor INT,
+    temperatura DECIMAL(5,2) NOT NULL,
+    umidade INT,
+    rotacao INT,
+    estado VARCHAR(20),
+    data_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_sensor) REFERENCES sensores(id_sensor)
+);
+
+-- 5. Tabela de Eventos
+CREATE TABLE IF NOT EXISTS eventos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    descricao TEXT,
+    nivel VARCHAR(20),
+    data_hora DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 6. Tabela de Alertas
+CREATE TABLE IF NOT EXISTS alertas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    id_sensor INT,
+    mensagem TEXT,
+    data_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_sensor) REFERENCES sensores(id_sensor)
+);
+
+SELECT * FROM usuarios;
