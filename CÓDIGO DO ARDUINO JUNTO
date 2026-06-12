@@ -1,0 +1,120 @@
+#include <ESP8266WiFi.h>
+#include <DHT.h>
+
+// --- Configurações do Wi-Fi ---
+const char* ssid = "Cyber-Projeto";
+const char* password = "Senai@122";
+
+// --- Mapeamento de Hardware Estabilizado ---
+#define DHTPIN D2          // Sensor de temperatura azul no D2
+#define DHTTYPE DHT11
+#define POT A0             // Potenciômetro azul
+#define BUZZER D5          // O Buzzer fica no D5
+
+// Definição dos dois botões físicos do seu Shield
+#define BTN_CONECTAR D0    // Botão SW1 (D0) -> LIGA o sistema e conecta Wi-Fi
+#define BTN_DESCONECTAR D1 // Botão SW2 (D1) -> DESLIGA o sistema e para tudo
+
+DHT dht(DHTPIN, DHTTYPE);
+bool sistemaOnline = false; 
+
+void setup() {
+  // Define o Baud Rate idêntico ao da ponte em Python (115200)
+  Serial.begin(115200);
+  
+  pinMode(BUZZER, OUTPUT);
+  pinMode(BTN_CONECTAR, INPUT_PULLUP);
+  pinMode(BTN_DESCONECTAR, INPUT_PULLUP);
+  
+  digitalWrite(BUZZER, LOW); 
+  dht.begin();
+
+  Serial.println("\n=========================================");
+  Serial.println("   SISTEMA EM ESPERA - AGUARDANDO BOTAO   ");
+  Serial.println("   -> Aperte SW1 (D0) para LIGAR E CONECTAR ");
+  Serial.println("   -> Aperte SW2 (D1) para DESLIGAR       ");
+  Serial.println("=========================================");
+}
+
+void loop() {
+  
+  // --- BOTÃO SW1: LIGAR E CONECTAR ---
+  if (digitalRead(BTN_CONECTAR) == LOW && !sistemaOnline) {
+    delay(200); // Filtro contra ruído (debounce)
+    
+    Serial.println("\n[Comando] Iniciando Sistema e Conectando ao WiFi...");
+    digitalWrite(BUZZER, HIGH); delay(100); digitalWrite(BUZZER, LOW); // Bip indicador
+    
+    WiFi.begin(ssid, password);
+    
+    int tentativas = 0;
+    while (WiFi.status() != WL_CONNECTED && tentativas < 20) {
+      delay(500);
+      Serial.print(".");
+      tentativas++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\n[OK] WiFi conectado com sucesso!");
+      Serial.print("[IP]: "); Serial.println(WiFi.localIP());
+      Serial.println("[SISTEMA ONLINE] Transmitindo dados para o Python...\n");
+      sistemaOnline = true;
+    } else {
+      Serial.println("\n[-] Falha ao conectar no Wi-Fi. Continuando em modo local...");
+      sistemaOnline = true; // Liga o sistema mesmo se o Wi-Fi falhar para não travar o hardware
+    }
+    
+    while(digitalRead(BTN_CONECTAR) == LOW) { delay(10); } // Espera soltar o botão
+  }
+
+  // --- BOTÃO SW2: DESLIGAR E DESCONECTAR ---
+  if (digitalRead(BTN_DESCONECTAR) == LOW) {
+    delay(200); // Filtro contra ruído (debounce)
+    
+    if (sistemaOnline) {
+      Serial.println("\n[Comando] Desconectando e parando leituras...");
+      
+      WiFi.disconnect();     // Desconecta o Wi-Fi voluntariamente
+      sistemaOnline = false; // Desativa o monitoramento
+      digitalWrite(BUZZER, LOW); // Desliga o alarme imediatamente
+      
+      // Dá 2 bips rápidos para confirmar o desligamento
+      digitalWrite(BUZZER, HIGH); delay(60); digitalWrite(BUZZER, LOW); delay(60);
+      digitalWrite(BUZZER, HIGH); delay(60); digitalWrite(BUZZER, LOW);
+      
+      Serial.println("SISTEMA_DESCONECTADO");
+      Serial.println("=========================================");
+      Serial.println("   SISTEMA DESCONECTADO E EM ESPERA        ");
+      Serial.println("   Aperte SW1 (D0) para ligar novamente.  ");
+      Serial.println("=========================================");
+    }
+    
+    while(digitalRead(BTN_DESCONECTAR) == LOW) { delay(10); } // Espera soltar o botão
+  }
+
+  // --- MONITORAMENTO E ENVIO SERIAL (SÓ RODA SE LIGADO PELO SW1) ---
+  if (sistemaOnline) {
+    float tempReal = dht.readTemperature();
+    int valorPot = analogRead(POT);
+    
+    // Mapeia o potenciômetro para ajustar o limite do alarme entre 20°C e 45°C
+    float limiteAlarme = map(valorPot, 0, 1024, 20, 45);
+
+    if (isnan(tempReal)) {
+      // Se falhar o sensor físico, envia um valor padrão seguro para o Python não quebrar
+      Serial.println(24.50);
+    } else {
+      // EVOLUÇÃO CRÍTICA: Envia APENAS o número puro para a Serial.
+      // Isso garante que o script Python consiga ler o float diretamente sem precisar limpar textos complexos.
+      Serial.println(tempReal);
+
+      // Log secundário para o operador no painel físico (opcional para checagem do alarme)
+      // Se o seu Python ler isso como erro, o try/except do script já filtra automaticamente.
+      if (tempReal > limiteAlarme) {
+        digitalWrite(BUZZER, HIGH); delay(150);
+        digitalWrite(BUZZER, LOW);  delay(150);
+      }
+    }
+    delay(2000); // Janela de tempo recomendada para o DHT11
+  }
+}
