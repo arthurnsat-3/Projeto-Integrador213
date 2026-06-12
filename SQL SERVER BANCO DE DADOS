@@ -1,0 +1,80 @@
+-- 1. Criação do Banco de Dados
+IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'alphatech_db')
+BEGIN
+    CREATE DATABASE alphatech_db;
+END
+GO
+
+USE alphatech_db;
+GO
+
+-- 2. Tabela de Sensores
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'sensores') AND type in (N'U'))
+BEGIN
+    CREATE TABLE sensores (
+        id_sensor INT IDENTITY(1,1) PRIMARY KEY,
+        nome VARCHAR(50) NOT NULL,
+        localizacao VARCHAR(100),
+        status VARCHAR(20)
+    );
+END
+
+-- 3. Tabela de Usuários
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'usuarios') AND type in (N'U'))
+BEGIN
+    CREATE TABLE usuarios (
+        id_usuario INT IDENTITY(1,1) PRIMARY KEY,
+        usuario VARCHAR(50) NOT NULL UNIQUE,
+        email VARCHAR(100) NOT NULL UNIQUE,
+        senha_hash VARCHAR(255) NOT NULL,
+        nivel_acesso VARCHAR(20) NOT NULL
+    );
+END
+
+-- 4. Tabela de Leituras
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'leituras') AND type in (N'U'))
+BEGIN
+    CREATE TABLE leituras (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        id_sensor INT,
+        temperatura DECIMAL(5,2) NOT NULL,
+        umidade INT,
+        rotacao INT,
+        estado VARCHAR(20),
+        data_hora DATETIME DEFAULT GETDATE(),
+        FOREIGN KEY (id_sensor) REFERENCES sensores(id_sensor)
+    );
+END
+
+-- 5. Tabela de Eventos
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'eventos') AND type in (N'U'))
+BEGIN
+    CREATE TABLE eventos (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        descricao TEXT,
+        nivel VARCHAR(20),
+        data_hora DATETIME DEFAULT GETDATE()
+    );
+END
+
+-- 6. Tabela de Alertas
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'alertas') AND type in (N'U'))
+BEGIN
+    CREATE TABLE alertas (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        id_sensor INT,
+        mensagem TEXT,
+        data_hora DATETIME DEFAULT GETDATE(),
+        FOREIGN KEY (id_sensor) REFERENCES sensores(id_sensor)
+    );
+END
+
+-- Inserir um sensor padrão para o Arduino não dar erro de chave estrangeira
+IF NOT EXISTS (SELECT 1 FROM sensores WHERE id_sensor = 1)
+BEGIN
+    SET IDENTITY_INSERT sensores ON;
+    INSERT INTO sensores (id_sensor, nome, localizacao, status) VALUES (1, 'DHT11_LOCAL_PORT', 'Laboratorio', 'Ativo');
+    SET IDENTITY_INSERT sensores OFF;
+END
+
+SELECT * FROM usuarios;
