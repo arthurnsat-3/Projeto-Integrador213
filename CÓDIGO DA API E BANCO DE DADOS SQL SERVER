@@ -1,0 +1,288 @@
+from flask import Flask, request, render_template_string, redirect, url_for, session
+import pyodbc  # Trocado: pymysql -> pyodbc
+from werkzeug.security import generate_password_hash, check_password_hash
+import threading
+import serial
+import time
+from datetime import datetime
+
+app = Flask(__name__)
+app.secret_key = 'SESSAO_SUPER_SECRETA_E_CRIPTOGRAFADA_ALPHATECH'
+
+BAUD_RATE = 115200
+
+# ===================================================
+#           DESIGN VISUAL DO PORTAL (CSS/HTML)
+# ===================================================
+ESTILO = "<style>body{font-family:'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#161b22;padding:40px;border-radius:12px;border:1px solid #30363d;width:340px;text-align:center;}input, select{width:100%;padding:12px;margin-bottom:15px;background:#0d1117;border:1px solid #30363d;color:#fff;border-radius:6px;box-sizing:border-box;}button{width:100%;padding:12px;background:#238636;border:none;color:#fff;font-weight:bold;border-radius:6px;cursor:pointer;font-size:14px;}button:hover{background:#2ea043;}.error{color:#f85149;background:rgba(248,81,73,0.1);padding:12px;border-radius:6px;font-size:13px;margin-bottom:20px;border:1px solid rgba(248,81,73,0.2);}.success{color:#56d364;background:rgba(86,211,100,0.1);padding:12px;border-radius:6px;font-size:13px;margin-bottom:20px;border:1px solid rgba(86,211,100,0.2);}.link-alt{display:block;margin-top:15px;font-size:13px;color:#58a6ff;text-decoration:none;}.link-alt:hover{text-decoration:underline;}</style>"
+
+PAGINA_USUARIO = f"<html><head><meta charset='UTF-8'><title>AlphaTech - Login</title>{ESTILO}</head><body><div class='card'><h2>Portal AlphaTech</h2><p style='color:#8b949e; font-size:14px;'>Controle Termodinâmico</p><br>{'{%if erro%}'}<div class='error'>{'{{" }} erro {{"}}'}</div>{'{%endif%}'}<form method='POST'><input type='text' name='username' placeholder='Nome do Operador' required autocomplete='off'><button type='submit'>Avançar ➔</button></form><a href='/cadastro' class='link-alt'>Novo por aqui? Criar uma conta</a></div></body></html>"
+
+PAGINA_SENHA = f"<html><head><meta charset='UTF-8'><title>AlphaTech - Chave</title>{ESTILO}</head><body><div class='card'><h2>Chave de Segurança</h2><p style='background:#0d1117; padding:8px; border-radius:6px;'>👤 Operador: <b>{'{{" }} usuario {{"}}'}</b></p>{'{%if erro%}'}<div class='error'>{'{{" }} erro {{"}}'}</div>{'{%endif%}'}<form method='POST'><input type='password' name='password' placeholder='Digite sua senha' required autofocus><button type='submit'>Autenticar No Sistema</button></form><a href='/' class='link-alt'>Voltar</a></div></body></html>"
+
+PAGINA_CADASTRO = f"<html><head><meta charset='UTF-8'><title>AlphaTech - Cadastro</title>{ESTILO}{'{% if success %}'}<meta http-equiv='refresh' content='2;url=/'>{'{% endif %}'}</head><body><div class='card'><h2>Criar Nova Conta</h2><p style='color:#8b949e; font-size:14px;'>Registre um novo operador</p><br>{'{%if erro%}'}<div class='error'>{'{{" }} erro {{"}}'}</div>{'{%endif%}'}{'{%if success%}'}<div class='success'>{'{{" }} success {{"}}'}</div>{'{%endif%}'}<form method='POST'><input type='text' name='username' placeholder='Nome de Usuário' required autocomplete='off'><input type='email' name='email' placeholder='E-mail' required><select name='nivel_acesso'><option value='Visitante'>Visitante</option><option value='Supervisor'>Supervisor</option><option value='Administrador'>Administrador</option></select><input type='password' name='password' placeholder='Crie uma Senha' required><input type='password' name='confirm_password' placeholder='Confirme a Senha' required><button type='submit'>Finalizar Cadastro</button></form><a href='/' class='link-alt'>Voltar para o Login</a></div></body></html>"
+
+TEMPLATEDASHBOARD = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AlphaTech - Dashboard</title>
+    <meta http-equiv="refresh" content="2">
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #0d1117; color: #c9d1d9; padding: 40px; margin: 0; }
+        .container { max-width: 900px; margin: 0 auto; background: #161b22; padding: 40px; border-radius: 16px; border: 1px solid #30363d; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 20px; margin-bottom: 30px; }
+        .user-badge { background: rgba(88,166,255,0.1); color: #58a6ff; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 13px; border: 1px solid rgba(88,166,255,0.2); }
+        .display-temp { background: #0d1117; border: 1px solid #30363d; padding: 40px; border-radius: 12px; text-align: center; margin-bottom: 35px; }
+        .value { font-size: 72px; font-weight: 700; color: #56d364; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 14px; border-bottom: 1px solid #30363d; font-size: 14px; }
+        th { background: #21262d; color: #8b949e; font-size: 11px; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2 style="margin:0;">Monitoramento Termodinâmico - AlphaTech</h2>
+            <div>
+                <span class="user-badge">👤 Operador: {{ usuario }} [{{ cargo }}]</span>
+                <a href="/logout" style="color: #f85149; margin-left: 15px; text-decoration: none; font-weight: bold;">Desconectar</a>
+            </div>
+        </div>
+        <div class="display-temp">
+            <div class="value">{{ ultima['temp'] }}°C</div>
+            <p style="color:#8b949e; margin: 10px 0 0 0;">Canal Serial Ativo: {{ ultima['sensor'] }}</p>
+        </div>
+        <h3>📋 Tabela de Leituras em Tempo Real (SQL Server)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Nº Registro</th>
+                    <th>Identificação do Sensor</th>
+                    <th>Temperatura Registrada</th>
+                    <th>Carimbo de Data/Hora</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in historico %}
+                <tr>
+                    <td>#{{ item['id'] }}</td>
+                    <td>{{ item['sensor'] }}</td>
+                    <td style="color:#58a6ff; font-weight:bold;">{{ item['temp'] }} °C</td>
+                    <td>{{ item['data'] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
+"""
+
+# ===================================================
+#          CONEXÃO NATIVA COM O SQL SERVER
+# ===================================================
+def conectar_sql_server():
+    # String de conexão configurada para autenticação padrão do SQL Server (sa / root)
+    # Altere o Driver caso utilize uma versão específica do SQL Server Management Studio
+    conn_str = (
+        "Driver={ODBC Driver 17 for SQL Server};"
+        "Server=localhost;"
+        "Database=alphatech_db;"
+        "UID=sa;"
+        "PWD=root;"
+    )
+    return pyodbc.connect(conn_str)
+
+# Helper para emular o DictCursor do PyMySQL no pyodbc
+def executar_select_dict(cursor, query, params=()):
+    cursor.execute(query, params)
+    colunas = [col[0] for col in cursor.description]
+    return [dict(zip(colunas, row)) for row in cursor.fetchall()]
+
+# ===================================================
+#     THREAD INTELIGENTE QUE PROCURA O ARDUINO
+# ===================================================
+def escutar_leitura_serial():
+    portas_para_testar = ['COM7', 'COM8', 'COM3', 'COM4']
+    
+    while True:
+        ser = None
+        porta_ativa = None
+        
+        for porta in portas_para_testar:
+            try:
+                ser = serial.Serial(porta, BAUD_RATE, timeout=1)
+                porta_ativa = porta
+                break 
+            except Exception:
+                continue 
+        
+        if ser and porta_ativa:
+            print(f"[SERIAL] Conexão estabelecida com sucesso na porta {porta_ativa}! Lendo dados...")
+            try:
+                while True:
+                    if ser.in_waiting > 0:
+                        linha = ser.readline().decode('utf-8', errors='ignore').strip()
+                        if len(linha) > 0:
+                            linha_limpa = ''.join(c for c in linha if c.isdigit() or c == '.')
+                            try:
+                                valor_temperatura = float(linha_limpa)
+                                print(f"[DADO USB] Temperatura recebida ({porta_ativa}): {valor_temperatura}°C")
+                                
+                                agora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                
+                                conn = conectar_sql_server()
+                                with conn.cursor() as cursor:
+                                    # Alterado placeholders para '?' compatível com SQL Server
+                                    sql = "INSERT INTO leituras (id_sensor, temperatura, data_hora) VALUES (?, ?, ?)"
+                                    cursor.execute(sql, (1, valor_temperatura, agora))
+                                    conn.commit()
+                                conn.close()
+                            except ValueError:
+                                pass
+                    time.sleep(0.1)
+            except Exception as e:
+                print(f"[AVISO HARDWARE] Conexão perdida ou erro de banco: {e}. Buscando novamente...")
+            finally:
+                if ser:
+                    ser.close()
+        else:
+            print("[AVISO HARDWARE] Nenhuma placa encontrada. Certifique-se de FECHAR O MONITOR SERIAL DA IDE DO ARDUINO! Tentando em 3s...")
+            time.sleep(3)
+
+# ===================================================
+#             ROTAS DO SITE (INTERFACE WEB)
+# ===================================================
+
+@app.route('/', methods=['GET', 'POST'])
+def login_usuario():
+    erro = None
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        try:
+            conn = conectar_sql_server()
+            with conn.cursor() as cursor:
+                linhas = executar_select_dict(cursor, "SELECT usuario FROM usuarios WHERE usuario = ?", (username,))
+                row = rows[0] if linhas else None
+            conn.close()
+            
+            if row:
+                session['usuario_em_verificacao'] = row['usuario']
+                return redirect(url_for('login_senha'))
+            
+            erro = "Operador não cadastrado na base AlphaTech."
+        except Exception as e: 
+            erro = f"Erro de banco: {e}"
+    return render_template_string(PAGINA_USUARIO, erro=erro)
+
+@app.route('/senha', methods=['GET', 'POST'])
+def login_senha():
+    usuario_temporario = session.get('usuario_em_verificacao')
+    if not usuario_temporario: 
+        return redirect(url_for('login_usuario'))
+    erro = None
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        try:
+            conn = conectar_sql_server()
+            with conn.cursor() as cursor:
+                linhas = executar_select_dict(cursor, "SELECT usuario, senha_hash, nivel_acesso FROM usuarios WHERE usuario = ?", (usuario_temporario,))
+                row = linhas[0] if linhas else None
+            conn.close()
+            
+            if row and check_password_hash(row['senha_hash'], password):
+                session.pop('usuario_em_verificacao', None)
+                session['usuario'] = row['usuario']
+                session['regime'] = row['nivel_acesso']
+                return redirect(url_for('dashboard'))
+            erro = "Chave de acesso incorreta!"
+        except Exception as e: 
+            erro = f"Erro: {e}"
+    return render_template_string(PAGINA_SENHA, erro=erro, usuario=usuario_temporario)
+
+@app.route('/cadastro', methods=['GET', 'POST'])
+def cadastro():
+    erro = None
+    sucesso = None
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        nivel_acesso = request.form.get('nivel_acesso', 'Visitante')
+
+        if password != confirm_password:
+            erro = "As senhas não coincidem!"
+        else:
+            try:
+                conn = conectar_sql_server()
+                with conn.cursor() as cursor:
+                    linhas = executar_select_dict(cursor, "SELECT id_usuario FROM usuarios WHERE usuario = ?", (username,))
+                    if linhas:
+                        erro = "Este nome de operador já existe!"
+                    else:
+                        senha_criptografada = generate_password_hash(password)
+                        sql = "INSERT INTO usuarios (usuario, email, senha_hash, nivel_acesso) VALUES (?, ?, ?, ?)"
+                        cursor.execute(sql, (username, email, senha_criptografada, nivel_acesso))
+                        conn.commit()
+                        sucesso = "Operador criado com sucesso! Redirecionando..."
+                conn.close()
+            except Exception as e:
+                erro = f"Erro ao salvar: {e}"
+
+    return render_template_string(PAGINA_CADASTRO, erro=erro, success=sucesso)
+
+@app.route('/dashboard')
+def dashboard():
+    if 'usuario' not in session: 
+        return redirect(url_for('login_usuario'))
+    
+    historico = []
+    ultima_leitura = {"sensor": "Aguardando Arduino...", "temp": "0.0"}
+    
+    try:
+        conn = conectar_sql_server()
+        with conn.cursor() as cursor:
+            linhas = executar_select_dict(cursor, "SELECT * FROM leituras")
+            
+            if linhas:
+                linhas_invertidas = list(linhas)[::-1][:10]
+                contador = 1
+                for r in linhas_invertidas:
+                    temp_valor = r.get('temperatura', r.get('valor', 0.0))
+                    data_valor = str(r.get('data_hora', r.get('data', 'Agora')))
+                    
+                    historico.append({
+                        "id": contador, 
+                        "sensor": 'DHT11_LOCAL_PORT', 
+                        "temp": f"{float(temp_valor):.2f}" if temp_valor else "0.0", 
+                        "data": data_valor
+                    })
+                    contador += 1
+        conn.close()
+        
+        if len(historico) > 0:
+            ultima_leitura = {"sensor": historico[0]["sensor"], "temp": historico[0]["temp"]}
+            
+    except Exception as e: 
+        print(f"Erro no painel: {e}")
+        
+    return render_template_string(
+        TEMPLATEDASHBOARD, 
+        usuario=session.get('usuario', 'Desconhecido'), 
+        cargo=session.get('regime', 'Visitante'), 
+        ultima=ultima_leitura, 
+        historico=historico
+    )
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login_usuario'))
+
+if __name__ == '__main__':
+    t = threading.Thread(target=escutar_leitura_serial, daemon=True)
+    t.start()
+    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
